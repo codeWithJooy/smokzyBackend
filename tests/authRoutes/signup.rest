@@ -1,0 +1,10 @@
+POST http://localhost:5000/api/auth/signup HTTP/1.1
+Content-Type: application/json
+
+{
+  "fullName": "Admin User",
+  "email": "emp1@smokzy.com",
+  "phone": "9876543210",
+  "password": "Smokzy@123",
+  "role":"employee"
+}
