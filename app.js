@@ -8,7 +8,7 @@ const customerRoutes=require("./routes/customerRoutes")
 const orderRoutes=require("./routes/orderRoutes/orderRoutes")
 
 app.use(cors({
-    origin: ['http://localhost:3000', 'https://your-frontend-domain.com'],
+    origin: ['http://localhost:3000', 'https://smokzy.netlify.app'],
     credentials: true
   }));
 app.use(express.json({ limit: '50mb' })); // Increase the limit as needed
