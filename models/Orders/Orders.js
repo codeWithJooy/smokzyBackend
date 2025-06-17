@@ -7,6 +7,11 @@ const orderSchema = new mongoose.Schema({
     unique: true,
     default: uuidv4
   },
+  orderNumber: {
+    type: String,
+    unique: true,
+    required: true
+  },
   customer: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Customer',

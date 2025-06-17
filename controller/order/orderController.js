@@ -1,5 +1,25 @@
 const Order = require("../../models/Orders/Orders");
+const Counter = require("../../models/Orders/Counter");
 const User = require("../../models/Users/user");
+
+async function getNextOrderNumber() {
+  const today = new Date();
+  const dateKey = today.toISOString().split("T")[0]; // YYYY-MM-DD
+  const formattedDate = [
+    String(today.getDate()).padStart(2, "0"),
+    String(today.getMonth() + 1).padStart(2, "0"),
+    today.getFullYear(),
+  ].join("/"); // DD/MM/YYYY
+
+  // Atomically increment the daily sequence
+  const counter = await Counter.findOneAndUpdate(
+    { _id: `orderNumber-${dateKey}` },
+    { $inc: { seq: 1 } },
+    { upsert: true, new: true }
+  );
+
+  return `${formattedDate}-${counter.seq}`;
+}
 
 exports.createOrder = async (req, res) => {
   try {
@@ -16,9 +36,13 @@ exports.createOrder = async (req, res) => {
       return res.status(400).json({ message: "Missing required fields" });
     }
 
+    // Generate unique order number
+    const orderNumber = await getNextOrderNumber();
+
     // Create new order
     const newOrder = new Order({
       customer: customer._id,
+      orderNumber,
       orderType,
       items,
       flavor,
@@ -59,11 +83,25 @@ exports.createOrder = async (req, res) => {
       ),
     ]);
 
+    const populatedOrder = await Order.findById(savedOrder._id)
+      .populate({
+        path: "customer",
+        select: "name number email address", // Select fields you want to include
+      })
+      .lean(); // Convert to plain JavaScript object
+
+    // Transform the response
+    const responseData = {
+      ...populatedOrder,
+      customerName: populatedOrder.customer.name,
+      customer: undefined 
+    };
+
     res.status(201).json({
       code: 200,
       success: true,
       message: "Order created successfully",
-      data: savedOrder,
+      data: responseData,
     });
   } catch (error) {
     console.error("Error creating order:", error);
@@ -82,10 +120,10 @@ exports.getOrder = async (req, res) => {
       .exec();
 
     if (!order) {
-      return res.status(404).json({code:404, message: "Order not found" });
+      return res.status(404).json({ code: 404, message: "Order not found" });
     }
 
-    res.status(200).json({code:200,data:order,message:"Order Fetched"});
+    res.status(200).json({ code: 200, data: order, message: "Order Fetched" });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -124,11 +162,11 @@ exports.getAllOrders = async (req, res) => {
       .exec();
 
     res.status(200).json({
-        code:200,
+      code: 200,
       success: true,
       count: orders.length,
-      data:orders,
-      message:"All orders Fetched Successfully"
+      data: orders,
+      message: "All orders Fetched Successfully",
     });
   } catch (error) {
     res.status(500).json({
