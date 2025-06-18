@@ -229,3 +229,44 @@ exports.updateOrderStatus = async (req, res) => {
     });
   }
 };
+exports.getOrderStatusCounts = async (req, res) => {
+  try {
+    console.log("Counts Starting")
+    // Count orders in each category
+    const counts = await Promise.all([
+      // Pending orders (just 'Pending' status)
+      Order.countDocuments({ status: 'Pending' }),
+      
+      // Processing orders (multiple statuses)
+      Order.countDocuments({ 
+        status: { 
+          $in: ['Preparing', 'Prepared', 'out-for-delivery', 'Delivered'] 
+        } 
+      }),
+      
+      // Completed orders
+      Order.countDocuments({ status: 'Completed' })
+    ]);
+   console.log("Counts is ",counts)
+    // Prepare response
+    const response = {
+      pending: counts[0],
+      processing: counts[1],
+      completed: counts[2],
+      total: counts[0] + counts[1] + counts[2] // Optional: total count
+    };
+
+    res.status(200).json({
+      code: 200,
+      success: true,
+      data: response,
+      message: "Order status counts fetched successfully"
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch order status counts",
+      error: error.message
+    });
+  }
+};
