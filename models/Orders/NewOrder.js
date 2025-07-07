@@ -73,65 +73,48 @@ const orderSchema = new mongoose.Schema(
     stepDetails: {
       preparation: {
         type: {
-          startedAt: { type: Date, default: null },
-          completedAt: { type: Date, default: null },
-          staffId: { type: String, default: null },
-          notes: { type: String, default: '' },
+          startedAt: Date,
+          completedAt: Date,
+          staffId: String,
+          notes: String,
           images: {
             type: [String],
             validate: [arrayLimit, "Max 5 images allowed"],
             default: [],
           },
         },
-        default: () => ({
-          startedAt: null,
-          completedAt: null,
-          staffId: null,
-          notes: '',
-          images: []
-        }),
+        default: {},
       },
       delivery: {
         type: {
-          startedAt: { type: Date, default: null },
-          completedAt: { type: Date, default: null },
-          staffId: { type: String, default: null },
-          notes: { type: String, default: '' },
+          startedAt: Date,
+          completedAt: Date,
+          staffId: String,
+          notes: String,
           images: {
             type: [String],
             validate: [arrayLimit, "Max 5 images allowed"],
             default: [],
           },
         },
-        default: () => ({
-          startedAt: null,
-          completedAt: null,
-          staffId: null,
-          notes: '',
-          images: []
-        }),
+        default: {},
       },
       collection: {
         type: {
-          startedAt: { type: Date, default: null },
-          completedAt: { type: Date, default: null },
-          staffId: { type: String, default: null },
-          notes: { type: String, default: '' },
+          startedAt: Date,
+          completedAt: Date,
+          staffId: String,
+          notes: String,
           images: {
             type: [String],
             validate: [arrayLimit, "Max 5 images allowed"],
             default: [],
           },
         },
-        default: () => ({
-          startedAt: null,
-          completedAt: null,
-          staffId: null,
-          notes: '',
-          images: []
-        }),
-      }
+        default: {},
+      },
     },
+
     // Order Status (Auto-synced with currentStep)
     status: {
       type: String,
@@ -141,8 +124,7 @@ const orderSchema = new mongoose.Schema(
         "Prepared",
         "Out for Delivery",
         "Delivered",
-        "Out For Collection",
-        "Collected",
+        "Completed",
       ],
       default: "Pending",
     },
@@ -160,33 +142,47 @@ const orderSchema = new mongoose.Schema(
 // **MIDDLEWARE & VALIDATION**
 // ========================
 
+// 1. Auto-initialize Preparation step when order is created
+orderSchema.pre("save", function (next) {
+  if (this.isNew) {
+    this.stepDetails.preparation = {
+      startedAt: new Date(),
+      staffId: this.staff.preparedBy,
+      notes: "Order created",
+      images: [],
+    };
+    this.currentStep = "Preparation";
+    this.status = "Preparing";
+  }
+  next();
+});
 
-// 1. Enforce step progression (cannot skip steps)
-// orderSchema.pre("save", function (next) {
-//   if (this.isModified("currentStep")) {
-//     const { currentStep, stepDetails } = this;
+// 2. Enforce step progression (cannot skip steps)
+orderSchema.pre("save", function (next) {
+  if (this.isModified("currentStep")) {
+    const { currentStep, stepDetails } = this;
 
-//     // Moving to Delivery requires Preparation completion
-//     if (currentStep === "Delivery" && !stepDetails.preparation.completedAt) {
-//       return next(
-//         new Error("Cannot proceed to Delivery: Preparation not completed")
-//       );
-//     }
+    // Moving to Delivery requires Preparation completion
+    if (currentStep === "Delivery" && !stepDetails.preparation.completedAt) {
+      return next(
+        new Error("Cannot proceed to Delivery: Preparation not completed")
+      );
+    }
 
-//     // Moving to Collection requires Delivery completion
-//     if (currentStep === "Collection" && !stepDetails.delivery.completedAt) {
-//       return next(
-//         new Error("Cannot proceed to Collection: Delivery not completed")
-//       );
-//     }
+    // Moving to Collection requires Delivery completion
+    if (currentStep === "Collection" && !stepDetails.delivery.completedAt) {
+      return next(
+        new Error("Cannot proceed to Collection: Delivery not completed")
+      );
+    }
 
-//     // Auto-update status based on step
-//     if (currentStep === "Preparation") this.status = "Preparing";
-//     if (currentStep === "Delivery") this.status = "Out for Delivery";
-//     if (currentStep === "Collection") this.status = "Delivered"; // Later updated to 'Completed'
-//   }
-//   next();
-// });
+    // Auto-update status based on step
+    if (currentStep === "Preparation") this.status = "Preparing";
+    if (currentStep === "Delivery") this.status = "Out for Delivery";
+    if (currentStep === "Collection") this.status = "Delivered"; // Later updated to 'Completed'
+  }
+  next();
+});
 
 // 3. Auto-update status to 'Completed' when Collection is finished
 orderSchema.post("findOneAndUpdate", async function (doc) {

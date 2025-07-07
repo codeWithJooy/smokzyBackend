@@ -1,6 +1,7 @@
 const Order = require("../../models/Orders/Orders");
 const Counter = require("../../models/Orders/Counter");
 const User = require("../../models/Users/user");
+const { uploadMultipleFilesToS3 } = require("../../utils/awsUtil");
 
 async function getNextOrderNumber() {
   const today = new Date();
@@ -61,7 +62,10 @@ exports.createOrder = async (req, res) => {
         { uuid: staff.preparedBy },
         {
           $push: {
-            assignedOrders: { order: savedOrder._id, taskType: "Prepare" },
+            assignedOrders: {
+              order: savedOrder._id,
+              taskType: "Prepare",
+            },
           },
         }
       ),
@@ -69,7 +73,10 @@ exports.createOrder = async (req, res) => {
         { uuid: staff.deliveredBy },
         {
           $push: {
-            assignedOrders: { order: savedOrder._id, taskType: "Delivery" },
+            assignedOrders: {
+              order: savedOrder._id,
+              taskType: "Delivery",
+            },
           },
         }
       ),
@@ -77,7 +84,10 @@ exports.createOrder = async (req, res) => {
         { uuid: staff.collectedBy },
         {
           $push: {
-            assignedOrders: { order: savedOrder._id, taskType: "Collect" },
+            assignedOrders: {
+              order: savedOrder._id,
+              taskType: "Collect",
+            },
           },
         }
       ),
@@ -94,7 +104,7 @@ exports.createOrder = async (req, res) => {
     const responseData = {
       ...populatedOrder,
       customerName: populatedOrder.customer.name,
-      customer: undefined 
+      customer: undefined,
     };
 
     res.status(201).json({
@@ -128,7 +138,11 @@ exports.getOrder = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
-
+exports.getEmpOrders = async (req, res) => {
+  try {
+    const { uuid } = req.query;
+  } catch (error) {}
+};
 exports.getAllOrders = async (req, res) => {
   try {
     // Get query parameters
@@ -229,44 +243,328 @@ exports.updateOrderStatus = async (req, res) => {
     });
   }
 };
+
 exports.getOrderStatusCounts = async (req, res) => {
   try {
-    console.log("Counts Starting")
+    console.log("Counts Starting");
     // Count orders in each category
     const counts = await Promise.all([
       // Pending orders (just 'Pending' status)
-      Order.countDocuments({ status: 'Pending' }),
-      
+      Order.countDocuments({ status: "Pending" }),
+
       // Processing orders (multiple statuses)
-      Order.countDocuments({ 
-        status: { 
-          $in: ['Preparing', 'Prepared', 'out-for-delivery', 'Delivered'] 
-        } 
+      Order.countDocuments({
+        status: {
+          $in: ["Preparing", "Prepared", "out-for-delivery", "Delivered"],
+        },
       }),
-      
+
       // Completed orders
-      Order.countDocuments({ status: 'Completed' })
+      Order.countDocuments({ status: "Completed" }),
     ]);
-   console.log("Counts is ",counts)
+    console.log("Counts is ", counts);
     // Prepare response
     const response = {
       pending: counts[0],
       processing: counts[1],
       completed: counts[2],
-      total: counts[0] + counts[1] + counts[2] // Optional: total count
+      total: counts[0] + counts[1] + counts[2], // Optional: total count
     };
 
     res.status(200).json({
       code: 200,
       success: true,
       data: response,
-      message: "Order status counts fetched successfully"
+      message: "Order status counts fetched successfully",
     });
   } catch (error) {
     res.status(500).json({
       success: false,
       message: "Failed to fetch order status counts",
-      error: error.message
+      error: error.message,
     });
+  }
+};
+
+// exports.orderByUuid = async (req, res) => {
+//   try {
+//     const { uuid } = req.params;
+
+//     if (!uuid) {
+//       return res.status(400).json({ success: false, message: "UUID is required" });
+//     }
+
+//     // Find the user with that UUID
+//     const user = await User.findOne({ uuid });
+
+//     if (!user) {
+//       return res.status(404).json({ success: false, message: "User not found" });
+//     }
+
+//     // Get all assigned orders
+//     const assignedOrders = user.assignedOrders || [];
+
+//     // Extract order IDs
+//     const orderIds = assignedOrders.map((task) => task.order);
+//     console.log(orderIds)
+
+//     // Fetch orders from DB
+//     const orders = await Order.find({ _id: { $in: orderIds } })
+//       .populate("customer", "name email number")
+//       .lean();
+
+//     // Add taskType info to orders
+//     const ordersWithTaskType = orders.map((order) => {
+//       const task = assignedOrders.find(
+//         (assigned) => assigned.order.toString() === order._id.toString()
+//       );
+//       return {
+//         ...order,
+//         taskType: task ? task.taskType : null,
+//       };
+//     });
+
+//     res.status(200).json({
+//       success: true,
+//       message: "Orders fetched by UUID",
+//       data: ordersWithTaskType,
+//       count: ordersWithTaskType.length,
+//     });
+//   } catch (error) {
+//     console.error("Error in orderByUuid:", error);
+//     res.status(500).json({ success: false, message: "Internal server error", error: error.message });
+//   }
+// };
+
+exports.orderByUuid = async (req, res) => {
+  try {
+    const { uuid } = req.params;
+    if (!uuid) {
+      return res
+        .status(400)
+        .json({ success: false, message: "UUID is required" });
+    }
+
+    const user = await User.findOne({ uuid });
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
+    }
+
+    const assignedOrders = user.assignedOrders || [];
+    const result = [];
+
+    // Process each task individually
+    for (const task of assignedOrders) {
+      const order = await Order.findById(task.order)
+        .populate("customer", "name email number")
+        .lean();
+
+      if (order) {
+        result.push({
+          ...order,
+          taskType: task.taskType,
+          taskStatus: task.taskStatus,
+          taskId: task._id,
+        });
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Orders fetched by UUID",
+      data: result,
+      count: result.length,
+    });
+  } catch (error) {
+    console.error("Error in orderByUuid:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+};
+
+//Employee Section Of Orders
+exports.startOrderStep = async (req, res) => {
+  try {
+    //Get The OrderId,Step and StaffId
+    const { orderId, step, staffId } = req.body;
+
+    //First Find The Order
+    const order = await Order.findOne({ _id: orderId });
+    if (!order) {
+      return res
+        .status(404)
+        .json({ code: 404, message: "Order Not Found", data: [] });
+    }
+    //Check If Correct Order Is Followed Or Not
+    if (step === "Delivery") {
+      if (order.status !== "Prepared") {
+        return res.status(200).json({
+          code: 404,
+          message: "Cannot Perform This Task Now",
+          data: [],
+        });
+      }
+    } else if (step === "Collect") {
+      if (order.status !== "Delivered") {
+        return res.status(200).json({
+          code: 404,
+          message: "Cannot Perform This Task Now",
+          data: [],
+        });
+      }
+    }
+
+    //Find the User
+    const user = await User.findOne({ uuid: staffId });
+    if (!user) {
+      return res
+        .status(404)
+        .json({ code: 404, message: "User Not Found", data: [] });
+    }
+
+    //Find the Assigned Task
+    const assignment = user.assignedOrders.find(
+      (a) =>
+        a.order.equals(orderId) &&
+        a.taskType.toLowerCase() === step.toLowerCase()
+    );
+
+    if (!assignment) {
+      return res.status(403).json({
+        code: 403,
+        message: "User not assigned to this order step",
+        data: [],
+      });
+    }
+
+    // Update order based on step
+    const stepLower = step.toLowerCase();
+    const now = new Date();
+
+    switch (stepLower) {
+      case "prepare":
+        order.stepDetails.preparation.startedAt = now;
+        order.status = "Preparing";
+        break;
+      case "collect":
+        order.stepDetails.collection.startedAt = now;
+        order.status = "Out For Collection";
+        break;
+      case "delivery":
+        order.stepDetails.delivery.startedAt = now;
+        order.status = "Out for Delivery";
+        break;
+      default:
+        return res.status(400).json({
+          code: 400,
+          message: "Invalid step provided",
+          data: [],
+        });
+    }
+
+    // Update the assignment
+    assignment.taskStatus = "Started";
+    user.markModified("assignedOrders");
+
+    order.markModified("stepDetails");
+    order.markModified("status");
+
+    await Promise.all([order.save(), user.save()]);
+
+    return res
+      .status(200)
+      .json({ code: 200, message: "Task Started", data: order });
+  } catch (error) {
+    return res.status(500).json({ code: 500, message: error.message });
+  }
+};
+
+//Update The Order
+exports.updateOrderStep = async (req, res) => {
+  try {
+    const { files, body } = req;
+
+    if (!files || files.length === 0) {
+      return res.json({ code: 400, message: "Add Atlest One Image", data: [] });
+    }
+    const { orderId, status, notes, step, staffId } = body;
+    //First Find the Order
+    const order = await Order.findOne({ _id: orderId });
+    if (!order) {
+      return res
+        .status(200)
+        .json({ code: 404, message: "Cannot Find The Order", data: [] });
+    }
+
+    //Upload the Images
+    const imagesUrl = await uploadMultipleFilesToS3(files);
+    console.log(imagesUrl);
+
+    //Find the User
+    const user = await User.findOne({ uuid: staffId });
+    if (!user) {
+      return res
+        .status(200)
+        .json({ code: 404, message: "User Not Found", data: [] });
+    }
+
+    //Find the Assigned Task
+    const assignment = user.assignedOrders.find(
+      (a) =>
+        a.order.equals(orderId) &&
+        a.taskType.toLowerCase() === step.toLowerCase()
+    );
+
+    if (!assignment) {
+      return res.status(403).json({
+        code: 403,
+        message: "User not assigned to this order step",
+        data: [],
+      });
+    }
+
+    //Make Changes In DB
+    if (status === "Prepared") {
+      order.stepDetails.preparation.completedAt = new Date();
+      order.stepDetails.preparation.notes = notes;
+      order.stepDetails.preparation.images = imagesUrl;
+      order.currentStep = "Delivery";
+      order.status = "Prepared";
+    }
+    if (status === "Delivered") {
+      order.stepDetails.delivery.completedAt = new Date();
+      order.stepDetails.delivery.notes = notes;
+      order.stepDetails.delivery.images = imagesUrl;
+      order.currentStep = "Collection";
+      order.status = "Delivered";
+    }
+    if (status === "Collected") {
+      order.stepDetails.collection.completedAt = new Date();
+      order.stepDetails.collection.notes = notes;
+      order.stepDetails.collection.images = imagesUrl;
+      order.currentStep = "Preparation";
+      order.status = "Collected";
+    }
+
+    order.markModified("stepDetails");
+    order.markModified("status");
+
+    // Update the assignment
+    assignment.taskStatus = "Completed";
+    user.markModified("assignedOrders");
+
+    await Promise.all([order.save(), user.save()]);
+
+    return res
+      .status(200)
+      .json({ code: 200, message: "Order Updated Successfull", data: order });
+  } catch (error) {
+    console.log("Error is ", error.message);
+    return res.status(500).json({ code: 500, message: "Images Failed To Add" });
   }
 };

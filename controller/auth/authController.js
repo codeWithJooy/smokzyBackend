@@ -43,10 +43,10 @@ exports.login = async (req, res) => {
     const { email, password } = req.body;
 
     const user = await User.findOne({ email });
-    if (!user) return res.status(401).json({ message: 'Invalid email or password' });
+    if (!user) return res.status(401).json({ message: 'User Not Found' });
 
     const isMatch = await user.comparePassword(password);
-    if (!isMatch) return res.status(401).json({ message: 'Invalid email or password' });
+    if (!isMatch) return res.status(401).json({ message: 'Invalid password' });
 
     const token = generateToken(user);
 
@@ -54,7 +54,7 @@ exports.login = async (req, res) => {
       code:200,
       message: 'Login successful',
       token,
-      user: {
+      data: {
         id: user.uuid,
         fullName: user.fullName,
         email: user.email,
